@@ -7,7 +7,7 @@ on:
   workflow_dispatch:            # Actions 탭에서 'Run workflow' 로 수동 실행
   push:
     branches: [main]
-    paths: ["report_template.html", "collector.py"]   # 화면/코드 수정 시 페이지만 다시 만듦
+    paths: ["report_template.html", "collector.py", "data/firebase.json"]   # 화면/코드 수정 시 페이지만 다시 만듦
 
 permissions:
   contents: write    # data/store.json 커밋
@@ -37,6 +37,7 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
           MOLIT_API_KEY: ${{ secrets.MOLIT_API_KEY }}
+          BOARD_KEY: ${{ secrets.BOARD_KEY }}
           ALERT_SHOW_TAGS: ${{ vars.ALERT_SHOW_TAGS }}
           MODE_ARGS: ${{ github.event.schedule == '0 4,9 * * *' && '--results-only' || '' }}
         run: python collector.py --store json --site _site $MODE_ARGS
@@ -50,7 +51,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/store.json
+          git add data/store.json data/stats.json
           if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
           git commit -m "수집 $(TZ=Asia/Seoul date +%F)"
           git pull --rebase origin main   # 그 사이 화면에서 저장한 state.json 커밋과 합치기

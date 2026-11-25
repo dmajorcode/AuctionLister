@@ -28,6 +28,10 @@ DB_PATH = ROOT / "data" / "auction.db"          # 로컬 실행용 SQLite
 STORE_PATH = ROOT / "data" / "store.json"       # GitHub 실행용 (git 으로 관리되는 수집 데이터)
 STATE_PATH = ROOT / "data" / "state.json"       # GitHub 실행용 (화면에서 저장하는 확인함/★ 표시)
 KST = dt.timezone(dt.timedelta(hours=9))
+STATS_PATH = ROOT / "data" / "stats.json"       # 개요 페이지용 서울 아파트 낙찰 기록 (로컬·GitHub 공용)
+FIREBASE_PATH = ROOT / "data" / "firebase.json"  # {"databaseURL": "https://....firebasedatabase.app"} (비밀 아님)
+STATS_SINCE = "2026-01-01"
+STATS_REFRESH_DAYS = 45                          # 첫 수집 뒤에는 최근 며칠만 다시 읽음
 
 SITE = "https://madangs.com"
 FILTERS = {
@@ -104,6 +108,46 @@ def fetch_results(today: str) -> list[dict]:
         if page <= total_pages:
             time.sleep(DELAY)
     return items
+
+
+def update_stats(today: str) -> None:
+    """개요(낙찰가율)용: 서울 아파트 전체(가격 제한 없음, 지분 제외)의 낙찰 기록 {m_code: [매각일, 감정가, 낙찰가]}.
+    매각결과 목록을 '낙찰(status=40)'만 읽는다. 주소 필터가 없어 전국을 읽고 서울만 남긴다."""
+    old = json.loads(STATS_PATH.read_text(encoding="utf-8")) if STATS_PATH.exists() else {}
+    sales = old.get("sales", {})
+    start = STATS_SINCE
+    if old.get("updated"):  # 마지막 갱신일에서 STATS_REFRESH_DAYS 앞부터
+        back = dt.date.fromisoformat(old["updated"]) - dt.timedelta(days=STATS_REFRESH_DAYS)
+        start = max(STATS_SINCE, back.isoformat())
+    page, total_pages = 1, 1
+    while page <= total_pages:
+        q = urllib.parse.urlencode({"use_type": FILTERS["use_type"], "status": "40", "date": start,
+                                    "date_end": today, "page": page})
+        for attempt in range(3):
+            try:
+                res = extract_obj(rsc_payload(http_get(f"{SITE}/search/result?{q}")), "initialResult")
+                if res is None:
+                    raise RuntimeError("initialResult 없음")
+                break
+            except Exception:
+                if attempt == 2:
+                    raise  # 일부만 읽은 상태는 저장하지 않음
+                time.sleep(10)
+        for it in res.get("items") or []:
+            day, ev, price = it.get("m_bid_date") or "", it.get("m_evaluate_price"), it.get("sold_price")
+            if (it.get("jibun_region_1depth_name") == "서울" and str(it.get("use_type_code")) == "2000"
+                    and it.get("sold_status") and ev and price and STATS_SINCE <= day <= today
+                    and not any("지분" in r for r in it.get("special_right") or [])):
+                sales[it["m_code"]] = [day, ev, price]
+        total_pages = int((res.get("pagination") or {}).get("total_pages") or 1)
+        if page % 50 == 0:
+            print(f"  통계 {page}/{total_pages}쪽, 서울 낙찰 {len(sales)}건", flush=True)
+        page += 1
+        time.sleep(DELAY)
+    rows = ",\n".join(f'{json.dumps(k)}: {json.dumps(v)}' for k, v in sorted(sales.items()))
+    STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    STATS_PATH.write_text(f'{{"since": "{STATS_SINCE}", "updated": "{today}", "sales": {{\n{rows}\n}}}}\n', encoding="utf-8")
+    print(f"  통계: {start}~{today} 확인, 서울 아파트 낙찰 누적 {len(sales)}건")
 
 
 def save_results(con: sqlite3.Connection, items: list[dict], today: str) -> int:
@@ -439,7 +483,8 @@ def page_data(con: sqlite3.Connection) -> dict:
         items.append(d)
     return {
         "today": ref, "first_run": first, "last_run": last[0] if last else None, "items": items,
-        "max_low_price": MAX_LOW_PRICE, "has_molit_key": bool(load_env().get("MOLIT_API_KEY")) or any(i["market"] for i in items),
+        "max_low_price": MAX_LOW_PRICE,
+        "stats": json.loads(STATS_PATH.read_text(encoding="utf-8")) if STATS_PATH.exists() else None, "has_molit_key": bool(load_env().get("MOLIT_API_KEY")) or any(i["market"] for i in items),
     }
 
 
@@ -502,7 +547,7 @@ def build_site(con: sqlite3.Connection, out_dir: Path) -> None:
     """GitHub Pages 용 정적 페이지. 확인함/★ 표시는 브라우저가 GitHub 의 state.json 을 직접 읽고 쓴다."""
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     extra = {"mode": "github", "repo": repo, "branch": os.environ.get("GITHUB_REF_NAME") or "main",
-             "state_path": "data/state.json"}
+             "state_path": "data/state.json", "firebase_url": firebase_url()}
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "index.html").write_text(render_page(con, extra), encoding="utf-8")
     (out_dir / ".nojekyll").write_text("")
@@ -519,17 +564,41 @@ def load_env() -> dict:
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
                 env[k.strip()] = v.strip().strip('"\'')
-    env.update({k: v for k, v in os.environ.items() if k.startswith(("TELEGRAM_", "MOLIT_", "ALERT_", "PAGE_URL"))})
+    env.update({k: v for k, v in os.environ.items() if k.startswith(("TELEGRAM_", "MOLIT_", "ALERT_", "PAGE_URL", "BOARD_KEY"))})
     return env
 
 
+def firebase_url() -> str:
+    if not FIREBASE_PATH.exists():
+        return ""
+    return (json.loads(FIREBASE_PATH.read_text(encoding="utf-8")).get("databaseURL") or "").rstrip("/")
+
+
+def load_shared(con: sqlite3.Connection, env: dict) -> None:
+    """공유 DB 의 ★·숨김을 가져옴 (★ 물건은 매각 결과를 계속 추적하므로)."""
+    url, key = firebase_url(), env.get("BOARD_KEY")
+    if not (url and key):
+        return
+    try:
+        state = json.loads(http_get(f"{url}/boards/{urllib.parse.quote(key)}/items.json")) or {}
+    except Exception as e:
+        print(f"  공유 DB 읽기 실패: {type(e).__name__}", file=sys.stderr)  # 주소에 키가 있어 내용은 출력 안 함
+        return
+    con.executemany("UPDATE items SET starred=?, hidden=? WHERE m_code=?",
+                    [(1 if v.get("starred") else 0, 1 if v.get("hidden") else 0, k) for k, v in state.items()])
+    con.commit()
+
+
 def page_url(env: dict) -> str:
-    """GitHub Actions 에서는 GitHub Pages 주소, 로컬에서는 localhost."""
+    """알림에 넣는 공개 페이지 주소. BOARD_KEY 가 있으면 ★·확인함을 저장할 수 있는 공유 링크."""
     repo = env.get("GITHUB_REPOSITORY") or os.environ.get("GITHUB_REPOSITORY")
     if repo:
         owner, name = repo.split("/", 1)
-        return f"https://{owner.lower()}.github.io/{name}/"
-    return env.get("PAGE_URL") or PUBLIC_URL
+        url = f"https://{owner.lower()}.github.io/{name}/"
+    else:
+        url = env.get("PAGE_URL") or PUBLIC_URL
+    key = env.get("BOARD_KEY")
+    return f"{url}#k={key}" if key and firebase_url() else url
 
 
 def telegram_recipients(env: dict) -> list[str]:
@@ -599,6 +668,7 @@ def main() -> int:
     con = db(memory=args.store == "json")
     if args.store == "json":
         load_store(con)
+    load_shared(con, env)
 
     today = dt.datetime.now(KST).date().isoformat()
     molit_key = env.get("MOLIT_API_KEY")
@@ -627,6 +697,10 @@ def main() -> int:
         if args.store == "json":
             dump_store(con)
         notify_telegram(env, new, today)
+        try:  # 통계는 부가 기능: 실패해도 수집·알림에는 영향 없음
+            update_stats(today)
+        except Exception as e:
+            print(f"  통계 갱신 실패: {e}", file=sys.stderr)
 
     if args.site:
         build_site(con, Path(args.site))

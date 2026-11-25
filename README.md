@@ -79,12 +79,18 @@ launchctl bootout gui/$(id -u)/com.auctionapp.collector; launchctl bootout gui/$
 | 가격 대기 | 감정가 10억↑이지만 최저가가 20억을 넘는 물건. 조건까지 얼마 남았는지 표시 |
 | 매각 결과 | 매각기일 당일부터, 또는 목록에서 빠진 물건과 매각액. **계속 누적**되며 `숨기기`로만 안 보이게 함 (`숨긴 물건 보기`에서 복구) |
 
-기본 정렬은 **감정가 대비 최저가가 낮은 순**입니다.
+`매각 결과`는 **최저가 10억~20억** 물건만 보여주며, 시세(같은 평형) 대비 낙찰가 %를 표시합니다.
+
+기본 정렬은 **감정가 대비 최저가가 낮은 순**이고, `매각 결과`만 **매각일 최근순**입니다.
 
 - **검색**: 아파트 이름·구·동·주소·사건번호로 검색. 띄어쓰기로 여러 단어를 넣으면 모두 포함하는 물건만 (예: `강남구 대치동`). 모든 탭에 적용되고 탭 건수도 검색 결과 기준으로 바뀜
 - 선순위임차인 / 임차권등기 물건은 기본으로 숨김. 화면 위 체크박스로 함께 보기 (브라우저에 기억)
 - 모든 카드에 매각기일 D-day, 최저가가 바뀌었으면 이전 최저가(취소선) 표시
 - 확인함·집중 모니터링 표시는 `data/auction.db`에 저장됩니다.
+
+## 개요 페이지 (우상단 그래프 아이콘)
+
+서울 아파트의 2026년 이후 **낙찰가율**(낙찰가 합계 ÷ 감정가 합계)을 월별·누적으로, 감정가 15억 미만 / 15억~25억 미만 / 25억 이상으로 나눠 보여줍니다. 데이터는 `data/stats.json` 에 쌓이며 매일 9시 수집 때 최근 45일을 다시 읽습니다. 낙찰률은 제공하지 않습니다.
 
 ## 파일
 
@@ -106,16 +112,26 @@ launchctl bootout gui/$(id -u)/com.auctionapp.collector; launchctl bootout gui/$
 공개 저장소 + GitHub Actions + GitHub Pages 로 돌아갑니다. 비용 없음, Claude 없이 동작.
 
 - 매일 09:00(전체 수집·알림), 13:00·18:00(매각결과만) Actions 가 실행 → `data/store.json` 커밋 → 페이지를 `https://dmajorcode.github.io/AuctionLister/` 에 게시
-- 확인함/★ 표시는 페이지에서 저장소의 `data/state.json` 에 직접 저장 (기기마다 GitHub 토큰을 한 번 입력)
-- 토큰이 없는 기기·사람은 **읽기 전용**으로만 봄. 페이지 주소를 아는 사람은 목록을 볼 수 있음 (공개 저장소)
+- 확인함/★ 표시는 무료 DB 에 저장해 공유 (아래 '여러 사람이 함께 쓰기')
+- 공유 링크가 없는 사람은 **읽기 전용**. 페이지 주소를 아는 사람은 목록을 볼 수 있음 (공개 저장소)
 - 비밀값(텔레그램 토큰, 채팅 ID, 국토부 키)은 저장소에 올라가지 않고 GitHub Secrets 에만 저장
 
-### 여러 사람이 함께 쓰기
+### 여러 사람이 함께 쓰기 (무료 DB 연결)
 
-- **보기**: 페이지 주소만 알면 누구나, 로그인·토큰 없이 볼 수 있습니다.
-- **확인함/★ 저장**: 모두가 같은 표시를 공유합니다. 저장할 사람의 기기에는 이 저장소의 쓰기 토큰이 필요합니다.
-  fine-grained 토큰은 저장소 소유자만 자기 저장소용으로 만들 수 있으므로, 소유자가 만든 토큰을 믿는 사람에게만 따로 전달합니다.
-  이 토큰으로는 저장소의 코드도 바꿀 수 있고, 코드는 Secrets(텔레그램 토큰 등)를 읽을 수 있으니 주의하세요. 만료일을 설정하고, 새면 바로 삭제하세요.
+- **보기**: 페이지 주소만 알면 누구나 볼 수 있습니다.
+- **★·확인함·숨김 저장/공유**: Firebase Realtime Database(무료 요금제)에 저장합니다. `공유 링크`(`…/AuctionLister/#k=키`)로 한 번 접속한 기기는 토큰 없이 저장할 수 있습니다. 링크를 가진 사람은 누구나 표시를 바꿀 수 있으니 믿는 사람에게만 보내세요. 텔레그램 알림의 링크는 공유 링크입니다.
+
+설정 (한 번):
+
+1. https://console.firebase.google.com → 프로젝트 추가 (Analytics 불필요, 요금제는 무료 Spark 그대로)
+2. **빌드 › Realtime Database › 데이터베이스 만들기** → 위치 `asia-southeast1`, **잠금 모드**
+3. **규칙** 탭에 아래를 넣고 게시
+   ```json
+   {"rules": {"boards": {"$key": {".read": "$key.length >= 20", ".write": "$key.length >= 20"}}}}
+   ```
+4. 데이터 탭 위의 주소(`https://….firebasedatabase.app`)를 `data/firebase.json` 의 `databaseURL` 에 넣고 push
+5. `.env` 의 `BOARD_KEY` 값을 GitHub Secrets `BOARD_KEY` 로 등록
+6. 공유 링크 보기: `python3 -c "import collector as c; print(c.page_url(c.load_env()))"`
 
 ### 처음 한 번 설정
 
@@ -127,10 +143,6 @@ launchctl bootout gui/$(id -u)/com.auctionapp.collector; launchctl bootout gui/$
    - `TELEGRAM_CHAT_IDS` : 알림 받을 사람 채팅 ID (쉼표로 여러 명)
    - `MOLIT_API_KEY` : 국토부 실거래가 키
 5. **Actions › daily-collect › Run workflow** 로 첫 실행 → 성공하면 페이지 주소가 표시됨
-6. 페이지에서 확인함/★ 를 저장하려면 [fine-grained 토큰](https://github.com/settings/personal-access-tokens/new) 생성
-   - Repository access: **Only select repositories** → 이 저장소만
-   - Permissions › Repository › **Contents: Read and write** (다른 권한 없음)
-   - 페이지 위쪽 `저장 설정` 을 눌러 붙여넣기 (그 기기 브라우저에만 저장됨)
 
 GitHub 로 옮긴 뒤에는 로컬 자동 실행을 끄세요. 그대로 두면 텔레그램 알림이 두 번 옵니다.
 
