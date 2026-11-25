@@ -233,8 +233,9 @@ const tracked = it => it.qualified_on || it.starred;
 // 신규: 첫 수집 이후 조건에 들어왔고, 아직 진행 중(매각기일 전)이며, 눌러보지 않은 물건
 const isSold = it => it.result?.state === "매각" && it.result.date >= it.m_bid_date;
 // 매각 결과: 한 번 올라온 물건은 계속 남음 (숨김 처리만 가능)
-const RESULT_LOW_MIN = 1e9, RESULT_LOW_MAX = 2e9;  // 매각 결과는 최저가 10억~20억만
-const inResult = it => !!tracked(it) && it.low_price >= RESULT_LOW_MIN && it.low_price <= RESULT_LOW_MAX && (!!it.result || !it.active || dday(it.m_bid_date) <= 0);
+// 매각 결과는 모니터링과 같은 기준: 감정가 10억 이상 · 최저가 20억 이하
+const RESULT_EVAL_MIN = 1e9;
+const inResult = it => !!tracked(it) && it.m_evaluate_price >= RESULT_EVAL_MIN && it.low_price <= DATA.max_low_price && (!!it.result || !it.active || dday(it.m_bid_date) <= 0);
 let showHidden = false;
 const WAIT_LOW_MAX = 25e8;  // 가격 대기는 최저가 25억 이하만 보여줌 (넘는 물건도 수집은 계속)
 const isNew = it => !isSold(it) && !!it.qualified_on && !it.baseline && !it.viewed && it.active && it.qualifies && !(dday(it.m_bid_date) < 0);
@@ -248,7 +249,7 @@ const VIEWS = {
   wait:    { label: "가격 대기", filter: it => it.active && !it.qualifies && it.low_price <= WAIT_LOW_MAX && !isSold(it),
              title: n => `최저가 ${won(DATA.max_low_price)} 초과 ~ ${won(WAIT_LOW_MAX)} 이하 대기 물건 ${n}건 · 유찰로 내려오면 신규로 들어옵니다`, empty: "가격 대기 물건이 없습니다." },
   result:  { label: "매각 결과", filter: it => inResult(it) && !!it.hidden === showHidden,
-             title: n => showHidden ? `숨긴 물건 ${n}건` : `매각 결과 ${n}건 · 최저가 10억~20억 (매각기일 당일 포함, 계속 누적)`, empty: "표시할 물건이 없습니다." },
+             title: n => showHidden ? `숨긴 물건 ${n}건` : `매각 결과 ${n}건 · 감정가 10억↑·최저가 20억↓ (매각기일 당일 포함, 계속 누적)`, empty: "표시할 물건이 없습니다." },
 };
 let tab = "new";
 const sortByTab = { result: "recent" };
