@@ -236,6 +236,7 @@ const isSold = it => it.result?.state === "매각" && it.result.date >= it.m_bid
 const RESULT_LOW_MIN = 1e9, RESULT_LOW_MAX = 2e9;  // 매각 결과는 최저가 10억~20억만
 const inResult = it => !!tracked(it) && it.low_price >= RESULT_LOW_MIN && it.low_price <= RESULT_LOW_MAX && (!!it.result || !it.active || dday(it.m_bid_date) <= 0);
 let showHidden = false;
+const WAIT_LOW_MAX = 25e8;  // 가격 대기는 최저가 25억 이하만 보여줌 (넘는 물건도 수집은 계속)
 const isNew = it => !isSold(it) && !!it.qualified_on && !it.baseline && !it.viewed && it.active && it.qualifies && !(dday(it.m_bid_date) < 0);
 const VIEWS = {
   new:     { label: "신규 (미확인)", filter: isNew,
@@ -244,8 +245,8 @@ const VIEWS = {
              title: n => `집중 모니터링 ${n}건`, empty: "카드 오른쪽 위 ☆를 눌러 집중 모니터링할 물건을 표시하세요." },
   all:     { label: "모니터링 중", filter: it => it.active && it.qualifies && !isSold(it),
              title: n => `조건(최저가 ${won(DATA.max_low_price)} 이하)을 만족하는 진행 물건 ${n}건`, empty: "조건을 만족하는 진행 물건이 없습니다." },
-  wait:    { label: "가격 대기", filter: it => it.active && !it.qualifies && !isSold(it),
-             title: n => `최저가가 ${won(DATA.max_low_price)}를 넘어 대기 중인 물건 ${n}건 · 유찰로 내려오면 신규로 들어옵니다`, empty: "가격 대기 물건이 없습니다." },
+  wait:    { label: "가격 대기", filter: it => it.active && !it.qualifies && it.low_price <= WAIT_LOW_MAX && !isSold(it),
+             title: n => `최저가 ${won(DATA.max_low_price)} 초과 ~ ${won(WAIT_LOW_MAX)} 이하 대기 물건 ${n}건 · 유찰로 내려오면 신규로 들어옵니다`, empty: "가격 대기 물건이 없습니다." },
   result:  { label: "매각 결과", filter: it => inResult(it) && !!it.hidden === showHidden,
              title: n => showHidden ? `숨긴 물건 ${n}건` : `매각 결과 ${n}건 · 최저가 10억~20억 (매각기일 당일 포함, 계속 누적)`, empty: "표시할 물건이 없습니다." },
 };
@@ -420,7 +421,7 @@ $("q").addEventListener("input", () => {
   query = $("q").value.trim().split(/\s+/).filter(Boolean).map(norm);
   // 검색어가 있으면 각 탭 건수가 검색 결과 기준으로 바뀜
   $("qinfo").textContent = query.length
-    ? `전체 ${ALL.filter(it => passTenant(it) && passQuery(it) && (tracked(it) || it.active)).length}건 일치` : "";
+    ? `전체 ${ALL.filter(it => passTenant(it) && passQuery(it) && Object.values(VIEWS).some(v => v.filter(it))).length}건 일치` : "";
   render();
 });
 // ---- 개요: 서울 아파트 낙찰가율 (월별·누적, 감정가 구간별) ----
