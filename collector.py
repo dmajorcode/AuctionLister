@@ -403,7 +403,7 @@ def save(con: sqlite3.Connection, items: list[dict], today: str) -> list[dict]:
     qualified_today = sum(1 for it in items if qualifies(slim(it)))
     con.execute(
         "INSERT OR REPLACE INTO runs VALUES (?,?,?,?)",
-        (dt.datetime.now().isoformat(timespec="seconds"), today, qualified_today, len(entered)),
+        (dt.datetime.now(KST).replace(tzinfo=None).isoformat(timespec="seconds"), today, qualified_today, len(entered)),  # GitHub 서버는 UTC 라서 한국시간으로
     )
     con.commit()
     return entered
