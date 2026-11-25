@@ -81,7 +81,7 @@
 <body>
 <header>
   <h1>서울 아파트 경매 모니터</h1>
-  <div class="sub">경매마당 · 아파트 · 지분경매 제외 · 감정가 10억↑ · 최저가 <span id="maxlow"></span>↓ · 매일 오전 9시·밤 9시 갱신 · <span id="updated"></span></div>
+  <div class="sub">경매마당 · 아파트 · 지분경매 제외 · 감정가 10억↑ · 최저가 <span id="maxlow"></span>↓ · 매일 오전 9시 수집 · 평일 저녁 6시 매각결과 · <span id="updated"></span></div>
   <div class="sub" id="savebar" style="display:none;margin-top:6px"></div>
 </header>
 <div class="wrap">
@@ -242,7 +242,7 @@ const ALL = DATA.items;
 const byCode = Object.fromEntries(ALL.map(it => [it.m_code, it]));
 const tracked = it => it.qualified_on || it.starred;
 // 신규: 첫 수집 이후 조건에 들어왔고, 아직 진행 중(매각기일 전)이며, 눌러보지 않은 물건
-const isSold = it => it.result?.state === "매각";
+const isSold = it => it.result?.state === "매각" && it.result.date >= it.m_bid_date;
 // 매각 결과: 한 번 올라온 물건은 계속 남음 (숨김 처리만 가능)
 const inResult = it => !!tracked(it) && (!!it.result || !it.active || dday(it.m_bid_date) <= 0);
 let showHidden = false;
@@ -308,9 +308,9 @@ function marketRows(it) {
 function resultRows(it) {
   const r = it.result;
   if (r && r.state === "매각" && r.sold_price)
-    return `<dt>매각액</dt><dd><span class="sold">${won(r.sold_price)}</span> <span class="small">(감정가의 ${pct(r.sold_price, it.m_evaluate_price)}${marketRef(it) ? ` · 시세의 ${pct(r.sold_price, marketRef(it))}` : ""}) ${esc(r.date)}</span></dd>`;
+    return `<dt>매각액</dt><dd><span class="sold">${won(r.sold_price)}</span> <span class="small">(감정가의 ${pct(r.sold_price, it.m_evaluate_price)}${marketRef(it) ? ` · 시세의 ${pct(r.sold_price, marketRef(it))}` : ""}) ${esc(r.date)}${r.status && r.status !== "매각" ? ` · ${esc(r.status)}` : ""}</span></dd>`;
   if (r) return `<dt>결과</dt><dd>${esc(r.state)} <span class="small">${esc(r.date)}</span></dd>`;
-  if (dday(it.m_bid_date) <= 0 && inResult(it)) return `<dt>결과</dt><dd class="small">결과 확인 중 (오전 9시·밤 9시에 다시 확인)</dd>`;
+  if (dday(it.m_bid_date) <= 0 && inResult(it)) return `<dt>결과</dt><dd class="small">결과 확인 중 (평일 저녁 6시·다음 날 오전 9시에 다시 확인)</dd>`;
   if (!it.active) return `<dt>결과</dt><dd class="small">매각기일 전에 목록에서 빠짐 (변경·취하 등)</dd>`;
   return "";
 }
@@ -325,9 +325,9 @@ function hl(text) {
 function card(it) {
   const n = dday(it.m_bid_date);
   const area = it.areas?.build ? `${it.areas.build.m}㎡(${it.areas.build.p}평)` : "";
-  const sold = it.result?.state === "매각";
+  const sold = isSold(it);
   const unread = isNew(it);
-  const entry = !it.qualified_on ? "" : it.entry_reason === "price_drop"
+  const entry = !it.qualified_on || it.entry_reason === "result" ? "" : it.entry_reason === "price_drop"
     ? `<span class="chip drop">유찰로 진입 ${esc(it.qualified_on.slice(5))}</span>`
     : (!it.baseline ? `<span class="chip ${unread ? "new" : "drop"}">${unread ? "NEW" : "새로 등록"} ${esc(it.qualified_on.slice(5))}</span>` : "");
   const prev = it.prev_low_price && it.prev_low_price !== it.low_price

@@ -26,6 +26,12 @@ python3 telegram_setup.py
 python3 telegram_setup.py --test
 ```
 
+매각결과만 갱신 (알림 없음):
+
+```bash
+python3 collector.py --results-only
+```
+
 이 컴퓨터에서만 화면 보기 (http://localhost:8765):
 
 ```bash
@@ -54,7 +60,7 @@ launchctl bootout gui/$(id -u)/com.auctionapp.collector; launchctl bootout gui/$
 
 ## 수집 조건
 
-경매마당(madangs.com/search)에서 아래 조건의 물건을 매일 오전 9시와 밤 9시에 수집해 보여줍니다.
+경매마당(madangs.com/search)에서 아래 조건의 물건을 매일 오전 9시에 수집해 보여줍니다. 매각액은 경매마당 매각결과 페이지에서 평일 저녁 6시에도 가져옵니다.
 
 - 지역: 서울 전체 · 용도: 주거용건물 > 아파트
 - 지분경매 제외 (사이트 지분필터 `지분 제외` + 특수권리에 '지분' 포함 물건 추가 제외)
@@ -99,7 +105,7 @@ launchctl bootout gui/$(id -u)/com.auctionapp.collector; launchctl bootout gui/$
 
 공개 저장소 + GitHub Actions + GitHub Pages 로 돌아갑니다. 비용 없음, Claude 없이 동작.
 
-- 매일 09:00·21:00(KST) Actions 가 수집 → `data/store.json` 커밋 → 페이지를 `https://dmajorcode.github.io/AuctionLister/` 에 게시
+- 매일 09:00(전체 수집·알림), 평일 18:00(매각결과만) Actions 가 실행 → `data/store.json` 커밋 → 페이지를 `https://dmajorcode.github.io/AuctionLister/` 에 게시
 - 확인함/★ 표시는 페이지에서 저장소의 `data/state.json` 에 직접 저장 (기기마다 GitHub 토큰을 한 번 입력)
 - 토큰이 없는 기기·사람은 **읽기 전용**으로만 봄. 페이지 주소를 아는 사람은 목록을 볼 수 있음 (공개 저장소)
 - 비밀값(텔레그램 토큰, 채팅 ID, 국토부 키)은 저장소에 올라가지 않고 GitHub Secrets 에만 저장
@@ -155,9 +161,16 @@ MOLIT_API_KEY=발급받은키
 
 키가 없으면 경매마당에서 제공하는 단지 평균 실거래가(평형 무관)만 표시됩니다.
 
-## 매각액
+## 매각액과 갱신 빈도
 
-매각기일이 지나 목록에서 빠진 물건은 경매마당 상세 페이지의 기일 내역에서 `매각` 결과와 매각액을 읽어 옵니다. 결과가 나올 때까지 최대 45일간 매일 다시 확인합니다.
+경매마당 **매각결과** 페이지(`/search/result?...&date=시작일&date_end=오늘`)에서 낙찰가를 읽습니다. 서울·아파트·감정가 10억↑·지분 제외이면서 최저가 20억 이하였던(또는 추적하던) 물건을 저장하고, 계속 누적합니다.
+
+| 실행 | 내용 | 경매마당 요청 |
+|---|---|---|
+| 매일 09:00 | 진행 목록 + 최근 90일 매각결과 + 알림 | 목록 2회 + 결과 약 5회 + 새 물건 상세 |
+| 평일 18:00 | 매각결과만 (알림 없음) | 약 5회 + 새 물건 상세 |
+
+요청 사이에는 1.5초를 둡니다. 법원 입찰은 평일에만 있고, 늦게 올라온 결과는 90일 범위를 매번 다시 훑으므로 다음 실행에서 들어옵니다.
 
 ## 텔레그램 알림 (선택)
 

@@ -41,6 +41,7 @@ MAX_LOW_PRICE = 2_000_000_000   # 최저가 20억 이하 (넘는 물건은 '가�
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36"
 DELAY = 1.5                 # 경매마당 요청 사이 간격(초)
 RESULT_TRACK_DAYS = 45      # 목록에서 빠진 뒤 매각 결과를 확인하는 기간
+RESULT_SCAN_DAYS = 90       # 매각결과 페이지에서 매번 다시 훑는 기간 (60건당 요청 1회, 보통 5회)
 MARKET_MONTHS = 12          # 실거래 조회 기간(개월)
 SAME_AREA_TOL = 2.0
 TENANT_TAGS = ("선순위임차인", "임차권등기")  # 리포트·알림에서 기본으로 숨기는 태그         # 같은 평형으로 보는 전용면적 차이(㎡)
@@ -84,6 +85,59 @@ def fetch_all() -> list[dict]:
         if page <= total_pages:
             time.sleep(DELAY)
     return items
+
+
+def fetch_results(today: str) -> list[dict]:
+    """매각결과 페이지(/search/result)에서 최근 매각기일의 물건. 주소 필터가 안 먹어서 서울은 is_wanted 로 거른다."""
+    start = (dt.date.fromisoformat(today) - dt.timedelta(days=RESULT_SCAN_DAYS)).isoformat()
+    params = {"use_type": FILTERS["use_type"], "eval_p_min": FILTERS["eval_p_min"], "date": start, "date_end": today}
+    items: list[dict] = []
+    page, total_pages = 1, 1
+    while page <= total_pages:
+        q = urllib.parse.urlencode(dict(params, page=page))
+        res = extract_obj(rsc_payload(http_get(f"{SITE}/search/result?{q}")), "initialResult")
+        if res is None:
+            raise RuntimeError("매각결과 페이지에서 initialResult 를 찾지 못했습니다")
+        items.extend(res.get("items") or [])
+        total_pages = int((res.get("pagination") or {}).get("total_pages") or 1)
+        page += 1
+        if page <= total_pages:
+            time.sleep(DELAY)
+    return items
+
+
+def save_results(con: sqlite3.Connection, items: list[dict], today: str) -> int:
+    """낙찰가가 있는 물건을 저장. 추적하던 물건이거나 최저가 20억↓ 였던 물건만. 새로 기록한 건수를 돌려준다."""
+    added = 0
+    for it in items:
+        # 매각 / 허가결정 / 납부 / 배당종결 등 낙찰된 상태는 모두 sold_status=True
+        if not (it.get("sold_status") and it.get("sold_price") and it.get("m_bid_date") and is_wanted(it)):
+            continue
+        s = slim(it)
+        res = {"date": s["m_bid_date"], "state": "매각", "sold_price": it["sold_price"],
+               "status": (it.get("m_state") or {}).get("state")}
+        row = con.execute("SELECT qualified_on, starred, result FROM items WHERE m_code=?", (s["m_code"],)).fetchone()
+        if row is None:
+            if not qualifies(s):
+                continue
+            con.execute(
+                "INSERT INTO items(m_code, first_seen, last_seen, baseline, data, qualified_on, entry_reason, result) "
+                "VALUES (?,?,?,0,?,?,'result',?)",
+                (s["m_code"], today, s["m_bid_date"], json.dumps(s, ensure_ascii=False), s["m_bid_date"],
+                 json.dumps(res, ensure_ascii=False)))
+            added += 1
+            continue
+        qualified_on, starred, old = row
+        if not (qualified_on or starred or qualifies(s)):
+            continue
+        if not old or json.loads(old).get("state") != "매각":
+            added += 1
+        con.execute(
+            "UPDATE items SET data=?, result=?, qualified_on=COALESCE(qualified_on, ?), "
+            "entry_reason=COALESCE(entry_reason, 'result') WHERE m_code=?",
+            (json.dumps(s, ensure_ascii=False), json.dumps(res, ensure_ascii=False), s["m_bid_date"], s["m_code"]))
+    con.commit()
+    return added
 
 
 def is_wanted(it: dict) -> bool:
@@ -324,7 +378,7 @@ def update_details(con: sqlite3.Connection, today: str) -> None:
         dropped = last_seen < today  # 매각기일 전에 목록에서 빠짐 (변경/취하 등)
         tracked = qualified_on or starred
         needs_result = bool(tracked) and (bid_passed or dropped) and not (res and res.get("state") == "매각") and last_seen >= cutoff
-        if (detail is None and last_seen == today) or needs_result:
+        if (detail is None and (last_seen == today or result)) or needs_result:
             todo.append((m_code, d, needs_result))
     for n, (m_code, d, needs_result) in enumerate(todo):
         try:
@@ -345,7 +399,8 @@ def update_details(con: sqlite3.Connection, today: str) -> None:
 
 def update_market(con: sqlite3.Connection, key: str, today: str) -> None:
     molit = Molit(key)
-    rows = con.execute("SELECT m_code, data FROM items WHERE last_seen=?", (today,)).fetchall()
+    rows = con.execute(
+        "SELECT m_code, data FROM items WHERE last_seen=? OR (result IS NOT NULL AND market IS NULL)", (today,)).fetchall()
     ok = 0
     for m_code, data in rows:
         try:
@@ -507,8 +562,6 @@ def notify_telegram(env: dict, new: list[dict], today: str) -> None:
     show = {t.strip() for t in env.get("ALERT_SHOW_TAGS", "").split(",") if t.strip()}
     new = [s for s in new if not any(t in TENANT_TAGS and t not in show for t in (s.get("special_right") or []))]
     new = sorted(new, key=lambda s: (s.get("low_price") or 0) / (s.get("m_evaluate_price") or 1))
-    if not new and env.get("ALERT_SKIP_EMPTY"):
-        return
     if not new:
         blocks = [f"{today} 조건에 새로 들어온 물건 없음 (서울 아파트·감정가 10억↑·최저가 20억↓·지분 제외)\n{page_url(env)}"]
     else:
@@ -536,6 +589,7 @@ def main() -> int:
     ap.add_argument("--site", metavar="DIR", help="정적 페이지(GitHub Pages)를 이 폴더에 생성")
     ap.add_argument("--site-only", action="store_true", help="수집 없이 페이지만 다시 생성")
     ap.add_argument("--export-store", action="store_true", help="로컬 DB → data/store.json, data/state.json")
+    ap.add_argument("--results-only", action="store_true", help="목록 수집·알림 없이 매각결과만 갱신")
     args = ap.parse_args()
 
     if args.export_store:
@@ -546,20 +600,30 @@ def main() -> int:
     if args.store == "json":
         load_store(con)
 
-    if not args.site_only:
-        today = dt.datetime.now(KST).date().isoformat()
+    today = dt.datetime.now(KST).date().isoformat()
+    molit_key = env.get("MOLIT_API_KEY")
+
+    def refresh_results() -> None:
+        added = save_results(con, fetch_results(today), today)
+        print(f"  매각결과: 최근 {RESULT_SCAN_DAYS}일 확인, 새 매각액 {added}건")
+        update_details(con, today)
+        if molit_key:
+            update_market(con, molit_key, today)
+        else:
+            print("  MOLIT_API_KEY 없음 → 같은 평형 실거래 시세는 건너뜀")
+
+    if args.results_only:
+        refresh_results()
+        if args.store == "json":
+            dump_store(con)
+    elif not args.site_only:
         items = [it for it in fetch_all() if is_wanted(it)]
         new = save(con, items, today)
         print(f"[{today}] 추적 {len(items)}건 (최저가 20억↓ {sum(qualifies(slim(i)) for i in items)}건), 오늘 조건 진입 {len(new)}건")
         for s in new:
             why = "유찰로 진입" if s["entry_reason"] == "price_drop" else "새로 등록"
             print(f"  + [{why}] {s['case_num']} {s['addr']} 감정 {s['eval_price']} 최저 {s['low_price_kor']}")
-        update_details(con, today)
-        molit_key = env.get("MOLIT_API_KEY")
-        if molit_key:
-            update_market(con, molit_key, today)
-        else:
-            print("  MOLIT_API_KEY 없음 → 같은 평형 실거래 시세는 건너뜀")
+        refresh_results()
         if args.store == "json":
             dump_store(con)
         notify_telegram(env, new, today)
