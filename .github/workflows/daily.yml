@@ -23,6 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}   # 대기하다 시작해도 최신 커밋에서 수집 (연달아 실행하면 데이터 커밋이 충돌했음)
 
       - uses: actions/setup-python@v5
         with:
