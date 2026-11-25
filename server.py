@@ -62,6 +62,9 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/star":
                 con.execute("UPDATE items SET starred=? WHERE m_code=?",
                             (1 if body.get("starred") else 0, str(body.get("m_code"))))
+            elif self.path == "/api/hide":
+                con.execute("UPDATE items SET hidden=? WHERE m_code=?",
+                            (1 if body.get("hidden") else 0, str(body.get("m_code"))))
             else:
                 return self._json(404, {"error": "not found"})
             con.commit()

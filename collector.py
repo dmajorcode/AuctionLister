@@ -46,6 +46,7 @@ SAME_AREA_TOL = 2.0
 TENANT_TAGS = ("선순위임차인", "임차권등기")  # 리포트·알림에서 기본으로 숨기는 태그         # 같은 평형으로 보는 전용면적 차이(㎡)
 
 LOCAL_URL = "http://localhost:8765"
+PUBLIC_URL = "https://dmajorcode.github.io/AuctionLister/"  # 알림에 넣는 공개 페이지
 
 PUSH_RE = re.compile(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)', re.S)
 
@@ -146,7 +147,7 @@ def fetch_detail(case_url: str) -> dict:
 def sale_result(item: dict, detail: dict) -> dict | None:
     """이번 매각기일(또는 그 이후)의 결과. 매각이면 매각액 포함."""
     bid_date = item.get("m_bid_date") or ""
-    past = [h for h in detail.get("history", []) if (h.get("date") or "") >= bid_date and h.get("state") not in (None, "", "진행")]
+    past = [h for h in detail.get("history", []) if (h.get("date") or "") >= bid_date and h.get("state") not in (None, "", "진행", "매각기일")]
     if not past:
         return None
     sold = [h for h in past if h.get("state") == "매각" and h.get("sold_price")]
@@ -194,13 +195,14 @@ def months_back(n: int, today: dt.date) -> list[str]:
     return out
 
 
-def same_complex(row: dict, jibun_code: str) -> bool:
-    """jibun_addr_code = 법정동코드(10) + 산여부(1) + 본번(4) + 부번(4)"""
-    umd, bon, bu = jibun_code[5:10], jibun_code[11:15], jibun_code[15:19]
-    if row.get("umdCd") and row.get("bonbun"):
-        return row["umdCd"] == umd and row["bonbun"].zfill(4) == bon and (row.get("bubun") or "0").zfill(4) == bu
-    jb = f"{int(bon)}" + (f"-{int(bu)}" if int(bu) else "")
-    return (row.get("jibun") or "") == jb
+def same_complex(row: dict, item: dict) -> bool:
+    """같은 법정동 + 같은 지번. 지번만 보면 다른 동의 같은 번지가 섞인다.
+    jibun_addr_code = 법정동코드(10) + 산여부(1) + 본번(4) + 부번(4)"""
+    code = item["jibun_addr_code"]
+    bon, bu = int(code[11:15]), int(code[15:19])
+    jb = f"{bon}" + (f"-{bu}" if bu else "")
+    dong = (item.get("jibun_region_3depth_name") or "").replace(" ", "")
+    return bool(dong) and (row.get("umdNm") or "").replace(" ", "") == dong and (row.get("jibun") or "") == jb
 
 
 def market_price(molit: Molit, item: dict, today: dt.date) -> dict | None:
@@ -210,7 +212,7 @@ def market_price(molit: Molit, item: dict, today: dt.date) -> dict | None:
     deals = []
     for ym in months_back(MARKET_MONTHS, today):
         for r in molit.month(code[:5], ym):
-            if r.get("cdealType") or not same_complex(r, code):  # 해제된 거래 제외
+            if r.get("cdealType") or not same_complex(r, item):  # 해제된 거래 제외
                 continue
             try:
                 ar = float(r.get("excluUseAr") or 0)
@@ -253,7 +255,7 @@ def db(memory: bool = False) -> sqlite3.Connection:
     cols = {r[1] for r in con.execute("PRAGMA table_info(items)")}
     for c, typ in (("detail", "TEXT"), ("result", "TEXT"), ("market", "TEXT"), ("qualified_on", "TEXT"),
                    ("entry_reason", "TEXT"), ("viewed_at", "TEXT"), ("starred", "INTEGER DEFAULT 0"),
-                   ("prev_low_price", "INTEGER")):
+                   ("prev_low_price", "INTEGER"), ("hidden", "INTEGER DEFAULT 0")):
         if c not in cols:
             con.execute(f"ALTER TABLE items ADD COLUMN {c} {typ}")
     if "qualified_on" not in cols:
@@ -318,7 +320,7 @@ def update_details(con: sqlite3.Connection, today: str) -> None:
     for m_code, last_seen, data, detail, result, qualified_on, starred in rows:
         d = json.loads(data)
         res = json.loads(result) if result else None
-        bid_passed = (d.get("m_bid_date") or "9999") < today
+        bid_passed = (d.get("m_bid_date") or "9999") <= today  # 당일 결과도 확인
         dropped = last_seen < today  # 매각기일 전에 목록에서 빠짐 (변경/취하 등)
         tracked = qualified_on or starred
         needs_result = bool(tracked) and (bid_passed or dropped) and not (res and res.get("state") == "매각") and last_seen >= cutoff
@@ -361,18 +363,19 @@ def page_data(con: sqlite3.Connection) -> dict:
     """웹 화면에 넘길 데이터. 기준일은 마지막 수집일."""
     last = con.execute("SELECT run_at, run_date FROM runs ORDER BY run_at DESC LIMIT 1").fetchone()
     ref = last[1] if last else dt.date.today().isoformat()
+    first = con.execute("SELECT MIN(run_date) FROM runs").fetchone()[0]
     items = []
     for (m_code, first_seen, last_seen, baseline, data, detail, result, market, qualified_on,
-         entry_reason, viewed_at, starred, prev_low) in con.execute(
+         entry_reason, viewed_at, starred, prev_low, hidden) in con.execute(
         "SELECT m_code, first_seen, last_seen, baseline, data, detail, result, market, qualified_on, "
-        "entry_reason, viewed_at, starred, prev_low_price FROM items"
+        "entry_reason, viewed_at, starred, prev_low_price, hidden FROM items"
     ):
         d = json.loads(data)
         det = json.loads(detail) if detail else {}
         d.update(
             first_seen=first_seen, last_seen=last_seen, baseline=bool(baseline), active=last_seen == ref,
             qualified_on=qualified_on, qualifies=qualifies(d), entry_reason=entry_reason,
-            viewed=bool(viewed_at), starred=bool(starred), prev_low_price=prev_low,
+            viewed=bool(viewed_at), starred=bool(starred), hidden=bool(hidden), prev_low_price=prev_low,
             result=json.loads(result) if result else None,
             market=json.loads(market) if market else None,
             danji_name=det.get("danji_name"), naver_apt_url=det.get("naver_apt_url"),
@@ -380,7 +383,7 @@ def page_data(con: sqlite3.Connection) -> dict:
         )
         items.append(d)
     return {
-        "today": ref, "last_run": last[0] if last else None, "items": items,
+        "today": ref, "first_run": first, "last_run": last[0] if last else None, "items": items,
         "max_low_price": MAX_LOW_PRICE, "has_molit_key": bool(load_env().get("MOLIT_API_KEY")),
     }
 
@@ -409,8 +412,9 @@ def load_store(con: sqlite3.Connection) -> None:
                         [(r["run_at"], r["run_date"], r["total"], r["new_count"]) for r in store.get("runs", [])])
     if STATE_PATH.exists():
         state = json.loads(STATE_PATH.read_text(encoding="utf-8")).get("items", {})
-        con.executemany("UPDATE items SET starred=?, viewed_at=? WHERE m_code=?",
-                        [(1 if v.get("starred") else 0, v.get("viewed_at"), k) for k, v in state.items()])
+        con.executemany("UPDATE items SET starred=?, viewed_at=?, hidden=? WHERE m_code=?",
+                        [(1 if v.get("starred") else 0, v.get("viewed_at"), 1 if v.get("hidden") else 0, k)
+                         for k, v in state.items()])
     con.commit()
 
 
@@ -431,9 +435,9 @@ def export_local_to_store() -> None:
     """지금까지 로컬(SQLite)에 쌓인 데이터와 확인함/★ 표시를 GitHub 용 파일로 옮긴다 (처음 한 번)."""
     con = db()
     dump_store(con)
-    state = {m: {k: v for k, v in (("viewed_at", va), ("starred", bool(st))) if v}
-             for m, va, st in con.execute("SELECT m_code, viewed_at, starred FROM items")
-             if va or st}
+    state = {m: {k: v for k, v in (("viewed_at", va), ("starred", bool(st)), ("hidden", bool(hd))) if v}
+             for m, va, st, hd in con.execute("SELECT m_code, viewed_at, starred, hidden FROM items")
+             if va or st or hd}
     STATE_PATH.write_text(json.dumps({"items": state}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(f"→ {STORE_PATH.relative_to(ROOT)} ({con.execute('SELECT COUNT(*) FROM items').fetchone()[0]}건), "
           f"{STATE_PATH.relative_to(ROOT)} ({len(state)}건)")
@@ -470,7 +474,7 @@ def page_url(env: dict) -> str:
     if repo:
         owner, name = repo.split("/", 1)
         return f"https://{owner.lower()}.github.io/{name}/"
-    return env.get("PAGE_URL") or LOCAL_URL
+    return env.get("PAGE_URL") or PUBLIC_URL
 
 
 def telegram_recipients(env: dict) -> list[str]:
@@ -502,15 +506,18 @@ def notify_telegram(env: dict, new: list[dict], today: str) -> None:
     # 화면 기본값과 같게: 선순위임차인/임차권등기 물건은 제외 (ALERT_SHOW_TAGS 로 포함 가능)
     show = {t.strip() for t in env.get("ALERT_SHOW_TAGS", "").split(",") if t.strip()}
     new = [s for s in new if not any(t in TENANT_TAGS and t not in show for t in (s.get("special_right") or []))]
+    new = sorted(new, key=lambda s: (s.get("low_price") or 0) / (s.get("m_evaluate_price") or 1))
+    if not new and env.get("ALERT_SKIP_EMPTY"):
+        return
     if not new:
         blocks = [f"{today} 조건에 새로 들어온 물건 없음 (서울 아파트·감정가 10억↑·최저가 20억↓·지분 제외)\n{page_url(env)}"]
     else:
         blocks = [f"🏢 {today} 조건 진입 {len(new)}건\n(서울 아파트·감정가 10억↑·최저가 20억↓·지분 제외)\n{page_url(env)}"]
     for s in new:
-        tag = "📉 유찰로 진입" if s.get("entry_reason") == "price_drop" else "🆕 신건"
+        tag = "📉 유찰로 진입" if s.get("entry_reason") == "price_drop" else "🆕 새로 등록"
         blocks.append(
             f"\n• [{tag}] {s['case_num']} {s.get('2depth_addr') or ''}\n  {s['addr']}\n"
-            f"  감정 {s['eval_price']} / 최저 {s['low_price_kor']} ({s['state']}) 매각 {s['m_bid_date']}\n"
+            f"  감정 {s['eval_price']} / 최저 {s['low_price_kor']} ({s['state']}) 매각기일 {s['m_bid_date']}\n"
             f"  {SITE}{s['case_url']}"
         )
     for chat in chats:
@@ -545,7 +552,7 @@ def main() -> int:
         new = save(con, items, today)
         print(f"[{today}] 추적 {len(items)}건 (최저가 20억↓ {sum(qualifies(slim(i)) for i in items)}건), 오늘 조건 진입 {len(new)}건")
         for s in new:
-            why = "유찰로 진입" if s["entry_reason"] == "price_drop" else "신건"
+            why = "유찰로 진입" if s["entry_reason"] == "price_drop" else "새로 등록"
             print(f"  + [{why}] {s['case_num']} {s['addr']} 감정 {s['eval_price']} 최저 {s['low_price_kor']}")
         update_details(con, today)
         molit_key = env.get("MOLIT_API_KEY")

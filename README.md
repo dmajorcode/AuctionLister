@@ -1,6 +1,60 @@
 # 서울 아파트 경매 모니터
 
-경매마당(madangs.com/search)에서 아래 조건의 물건을 매일 오전 9시에 수집하고, 화면 **http://localhost:8765** 에서 보여줍니다.
+**공개 페이지: https://dmajorcode.github.io/AuctionLister/** (GitHub 설정을 마친 뒤 열립니다. 휴대폰 데이터망에서도 접속 가능)
+
+## 실행 명령어
+
+모두 프로젝트 폴더에서 실행합니다.
+
+```bash
+cd ~/Documents/Github/auction_app
+```
+
+지금 한 번 수집 (`.env`에 텔레그램 설정이 있으면 알림도 **실제로 보냅니다**):
+
+```bash
+python3 collector.py
+```
+
+알림 받을 사람(채팅 ID) 확인 / 테스트 메시지:
+
+```bash
+python3 telegram_setup.py
+```
+
+```bash
+python3 telegram_setup.py --test
+```
+
+이 컴퓨터에서만 화면 보기 (http://localhost:8765):
+
+```bash
+python3 server.py
+```
+
+맥에서 자동 실행 등록/다시 등록. GitHub 로 운영하면 필요 없습니다. 이미 등록된 상태에서 `bootstrap`만 하면 `Bootstrap failed: 5` 오류가 나므로 먼저 해제합니다.
+
+화면 서버:
+
+```bash
+launchctl bootout gui/$(id -u)/com.auctionapp.server 2>/dev/null; sleep 1; cp com.auctionapp.server.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.auctionapp.server.plist
+```
+
+매일 9시 수집:
+
+```bash
+mkdir -p ~/Library/Logs/auction_app; launchctl bootout gui/$(id -u)/com.auctionapp.collector 2>/dev/null; sleep 1; cp com.auctionapp.collector.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.auctionapp.collector.plist
+```
+
+자동 실행 해제:
+
+```bash
+launchctl bootout gui/$(id -u)/com.auctionapp.collector; launchctl bootout gui/$(id -u)/com.auctionapp.server
+```
+
+## 수집 조건
+
+경매마당(madangs.com/search)에서 아래 조건의 물건을 매일 오전 9시와 밤 9시에 수집해 보여줍니다.
 
 - 지역: 서울 전체 · 용도: 주거용건물 > 아파트
 - 지분경매 제외 (사이트 지분필터 `지분 제외` + 특수권리에 '지분' 포함 물건 추가 제외)
@@ -13,11 +67,13 @@
 
 | 탭 | 내용 |
 |---|---|
-| 신규 (미확인) | 조건에 새로 들어온 물건 중 **아직 눌러보지 않은 것**. 링크(주소·경매마당·네이버부동산)를 누르거나 `확인함으로 표시`를 눌러야 빠집니다. `NEW`=신건, `유찰로 진입`=가격이 내려와 들어온 물건 |
+| 신규 (미확인) | **첫 수집 이후** 목록에 새로 등록됐거나 유찰 등으로 최저가가 20억 이하가 된 물건 중, **진행 중(매각기일 전)이고 아직 눌러보지 않은 것**. 링크(주소·경매마당·네이버부동산)나 `확인함으로 표시`를 누르면 빠집니다. 첫 수집 때 이미 있던 물건은 신규가 아닙니다. `NEW`=새로 등록, `유찰로 진입`=가격이 내려와 들어온 물건 |
 | ★ 집중 모니터링 | 카드 오른쪽 위 ☆를 눌러 표시한 물건 (임차인 필터와 상관없이 항상 표시) |
 | 모니터링 중 | 지금 조건을 만족하는 진행 물건 전체 |
 | 가격 대기 | 감정가 10억↑이지만 최저가가 20억을 넘는 물건. 조건까지 얼마 남았는지 표시 |
-| 매각 결과 | 매각기일이 지났거나 목록에서 빠진 물건과 매각액 |
+| 매각 결과 | 매각기일 당일부터, 또는 목록에서 빠진 물건과 매각액. **계속 누적**되며 `숨기기`로만 안 보이게 함 (`숨긴 물건 보기`에서 복구) |
+
+기본 정렬은 **감정가 대비 최저가가 낮은 순**입니다.
 
 - **검색**: 아파트 이름·구·동·주소·사건번호로 검색. 띄어쓰기로 여러 단어를 넣으면 모두 포함하는 물건만 (예: `강남구 대치동`). 모든 탭에 적용되고 탭 건수도 검색 결과 기준으로 바뀜
 - 선순위임차인 / 임차권등기 물건은 기본으로 숨김. 화면 위 체크박스로 함께 보기 (브라우저에 기억)
@@ -35,7 +91,7 @@
 | `server.py` | 화면 서버 (127.0.0.1:8765, 이 컴퓨터에서만 접속) |
 | `report_template.html` | 화면 템플릿 |
 | `data/auction.db` | 물건 · 확인 여부 · 집중 표시 (SQLite) |
-| `run.sh` | 매일 수집 스크립트 (로그: `logs/collector.log`) |
+| `run.sh` | 매일 수집 스크립트 (수동 실행용. 자동 실행 로그: `~/Library/Logs/auction_app/collector.log`) |
 | `com.auctionapp.collector.plist` | 매일 오전 9시 수집 LaunchAgent |
 | `com.auctionapp.server.plist` | 화면 서버 상시 실행 LaunchAgent |
 
@@ -43,23 +99,27 @@
 
 공개 저장소 + GitHub Actions + GitHub Pages 로 돌아갑니다. 비용 없음, Claude 없이 동작.
 
-- 매일 09:00(KST) Actions 가 수집 → `data/store.json` 커밋 → 페이지를 `https://<아이디>.github.io/<저장소>/` 에 게시
+- 매일 09:00·21:00(KST) Actions 가 수집 → `data/store.json` 커밋 → 페이지를 `https://dmajorcode.github.io/AuctionLister/` 에 게시
 - 확인함/★ 표시는 페이지에서 저장소의 `data/state.json` 에 직접 저장 (기기마다 GitHub 토큰을 한 번 입력)
 - 토큰이 없는 기기·사람은 **읽기 전용**으로만 봄. 페이지 주소를 아는 사람은 목록을 볼 수 있음 (공개 저장소)
 - 비밀값(텔레그램 토큰, 채팅 ID, 국토부 키)은 저장소에 올라가지 않고 GitHub Secrets 에만 저장
 
+### 여러 사람이 함께 쓰기
+
+- **보기**: 페이지 주소만 알면 누구나, 로그인·토큰 없이 볼 수 있습니다.
+- **확인함/★ 저장**: 모두가 같은 표시를 공유합니다. 저장할 사람의 기기에는 이 저장소의 쓰기 토큰이 필요합니다.
+  fine-grained 토큰은 저장소 소유자만 자기 저장소용으로 만들 수 있으므로, 소유자가 만든 토큰을 믿는 사람에게만 따로 전달합니다.
+  이 토큰으로는 저장소의 코드도 바꿀 수 있고, 코드는 Secrets(텔레그램 토큰 등)를 읽을 수 있으니 주의하세요. 만료일을 설정하고, 새면 바로 삭제하세요.
+
 ### 처음 한 번 설정
 
-1. GitHub 에서 새 **Public** 저장소 생성 (README 등 아무것도 추가하지 말 것)
-2. 이 폴더를 올리기
-   ```bash
-   git remote add origin https://github.com/<아이디>/<저장소>.git && git push -u origin main
-   ```
+1. 저장소: `dmajorcode/AuctionLister` (Public)
+2. 이 폴더를 올리기: GitHub Desktop 에서 `Push origin`
 3. 저장소 **Settings › Pages › Source** 를 `GitHub Actions` 로
 4. **Settings › Secrets and variables › Actions › New repository secret** 에 등록
    - `TELEGRAM_TOKEN` : @AuctionCrawlerBot 토큰
    - `TELEGRAM_CHAT_IDS` : 알림 받을 사람 채팅 ID (쉼표로 여러 명)
-   - `MOLIT_API_KEY` : (선택) 국토부 실거래가 키
+   - `MOLIT_API_KEY` : 국토부 실거래가 키
 5. **Actions › daily-collect › Run workflow** 로 첫 실행 → 성공하면 페이지 주소가 표시됨
 6. 페이지에서 확인함/★ 를 저장하려면 [fine-grained 토큰](https://github.com/settings/personal-access-tokens/new) 생성
    - Repository access: **Only select repositories** → 이 저장소만
@@ -83,28 +143,6 @@ launchctl bootout gui/$(id -u)/com.auctionapp.collector; launchctl bootout gui/$
 3. 받을 사람 ID만 `TELEGRAM_CHAT_IDS` 에 (로컬 `.env`, GitHub Secrets 둘 다)
 4. `python3 telegram_setup.py --test` 로 테스트 메시지
 5. (권장) @BotFather 에서 `/setjoingroups` → Disable : 다른 사람이 봇을 단체방에 초대하지 못하게
-
-## 로컬 자동 실행 등록
-
-매일 9시 수집:
-
-```bash
-cp com.auctionapp.collector.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.auctionapp.collector.plist
-```
-
-화면 서버 상시 실행 (로그인하면 자동 시작, 꺼지면 재시작):
-
-```bash
-cp com.auctionapp.server.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.auctionapp.server.plist
-```
-
-해제:
-
-```bash
-launchctl bootout gui/$(id -u)/com.auctionapp.collector; launchctl bootout gui/$(id -u)/com.auctionapp.server
-```
-
-맥이 9시에 잠자기 중이었다면 깨어난 뒤 수집합니다. 수동 실행은 `python3 collector.py`, 서버만 잠깐 띄우려면 `python3 server.py`.
 
 ## 같은 평형 시세 (국토부 실거래가 API 키 필요)
 
