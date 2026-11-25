@@ -439,7 +439,7 @@ def page_data(con: sqlite3.Connection) -> dict:
         items.append(d)
     return {
         "today": ref, "first_run": first, "last_run": last[0] if last else None, "items": items,
-        "max_low_price": MAX_LOW_PRICE, "has_molit_key": bool(load_env().get("MOLIT_API_KEY")),
+        "max_low_price": MAX_LOW_PRICE, "has_molit_key": bool(load_env().get("MOLIT_API_KEY")) or any(i["market"] for i in items),
     }
 
 
