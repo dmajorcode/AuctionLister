@@ -109,6 +109,8 @@
     <span class="sub">기본으로 숨김 · 체크하면 함께 보기</span>
     <label><input type="checkbox" data-tag="선순위임차인"> 선순위임차인 <span class="cnt"></span></label>
     <label><input type="checkbox" data-tag="임차권등기"> 임차권등기 <span class="cnt"></span></label>
+    <label><input type="checkbox" data-tag="선순위가등기"> 선순위가등기 <span class="cnt"></span></label>
+    <label><input type="checkbox" data-tag="유치권"> 유치권 <span class="cnt"></span></label>
     <span class="sub" id="hidden"></span>
   </div>
   <div class="bar">
@@ -221,7 +223,7 @@ function setSaveBar() {
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 3000); }
 
 // ---- 임차인 필터 (브라우저에 기억) ----
-const TENANT_TAGS = ["선순위임차인", "임차권등기"];
+const TENANT_TAGS = ["선순위임차인", "임차권등기", "선순위가등기", "유치권"];  // 기본으로 숨기는 특수권리
 const PREF_KEY = "auction_app.showTags";
 let showTags = new Set();
 try { showTags = new Set(JSON.parse(localStorage.getItem(PREF_KEY) || "[]")); } catch (e) {}

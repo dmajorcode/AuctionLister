@@ -48,7 +48,7 @@ RESULT_TRACK_DAYS = 45      # 목록에서 빠진 뒤 매각 결과를 확인하
 RESULT_SCAN_DAYS = 90       # 매각결과 페이지에서 매번 다시 훑는 기간 (60건당 요청 1회, 보통 5회)
 MARKET_MONTHS = 12          # 실거래 조회 기간(개월)
 SAME_AREA_TOL = 2.0
-TENANT_TAGS = ("선순위임차인", "임차권등기")  # 리포트·알림에서 기본으로 숨기는 태그         # 같은 평형으로 보는 전용면적 차이(㎡)
+TENANT_TAGS = ("선순위임차인", "임차권등기", "선순위가등기", "유치권")  # 리포트·알림에서 기본으로 숨기는 태그         # 같은 평형으로 보는 전용면적 차이(㎡)
 
 LOCAL_URL = "http://localhost:8765"
 PUBLIC_URL = "https://dmajorcode.github.io/AuctionLister/"  # 알림에 넣는 공개 페이지
@@ -627,7 +627,7 @@ def notify_telegram(env: dict, new: list[dict], today: str) -> None:
     token, chats = env.get("TELEGRAM_TOKEN"), telegram_recipients(env)
     if not (token and chats):
         return
-    # 화면 기본값과 같게: 선순위임차인/임차권등기 물건은 제외 (ALERT_SHOW_TAGS 로 포함 가능)
+    # 화면 기본값과 같게: 선순위임차인/임차권등기/선순위가등기/유치권 물건은 제외 (ALERT_SHOW_TAGS 로 포함 가능)
     show = {t.strip() for t in env.get("ALERT_SHOW_TAGS", "").split(",") if t.strip()}
     new = [s for s in new if not any(t in TENANT_TAGS and t not in show for t in (s.get("special_right") or []))]
     new = sorted(new, key=lambda s: (s.get("low_price") or 0) / (s.get("m_evaluate_price") or 1))
