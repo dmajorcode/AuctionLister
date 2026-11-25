@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>서울 아파트 경매 모니터</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1b1f24; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #2f5bea; --accent-soft: #e8eefe; --new: #e8590c; --tag: #f1f3f5; --low: #c92a2a;
+    --sold: #2b8a3e; --sold-soft: #e6f4ea; --dday: #e8590c; --dday-soft: #fff1e6; --star: #f59f00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111418; --card:#1a1f25; --text:#e8eaed; --muted:#9aa3ad; --line:#2a3038;
+      --accent:#7c9cff; --accent-soft:#1f2a4a; --new:#ff8a4c; --tag:#242a32; --low:#ff6b6b;
+      --sold:#69db7c; --sold-soft:#1c2e22; --dday:#ff9a5c; --dday-soft:#33241a; --star:#ffd43b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  header { padding: 24px 16px 4px; max-width: 1100px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 8px 16px 48px; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 8px 0 4px; overflow-x: auto; }
+  .tabs button { flex: none; border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600;
+    padding: 10px 12px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs button.on { color: var(--text); border-color: var(--accent); }
+  .tabs .n { font-weight: 700; margin-left: 4px; color: var(--accent); }
+  .tabs .n.hot { background: var(--new); color: #fff; border-radius: 999px; padding: 0 7px; font-size: 12px; }
+  .search { display: flex; gap: 10px; align-items: center; margin: 12px 0 0; flex-wrap: wrap; }
+  .search input { flex: 1; min-width: 220px; font: inherit; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  .search input:focus { outline: none; border-color: var(--accent); }
+  mark { background: var(--dday-soft); color: inherit; border-radius: 2px; }
+  .filters { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 10px 0 2px; font-size: 14px; }
+  .filters label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+  .filters input { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
+  .filters .cnt { color: var(--muted); font-size: 12px; }
+  .bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 10px 0 12px; flex-wrap: wrap; }
+  .bar h2 { font-size: 17px; margin: 0; }
+  .bar .right { display: flex; gap: 10px; align-items: center; }
+  select, .btn { font: inherit; font-size: 13px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  .btn { cursor: pointer; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .note { font-size: 12px; color: var(--muted); background: var(--card); border: 1px dashed var(--line); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; gap: 12px; position: relative; transition: opacity .2s; }
+  .card.unread { border-left: 3px solid var(--new); }
+  .card.starred { box-shadow: 0 0 0 1px var(--star) inset; }
+  .card.seen-now { opacity: .55; }
+  .card img { width: 84px; height: 84px; object-fit: cover; border-radius: 8px; background: var(--tag); flex: none; }
+  .body { min-width: 0; flex: 1; }
+  .star { position: absolute; top: 8px; right: 8px; border: 0; background: none; font-size: 20px; line-height: 1; cursor: pointer; color: var(--line); padding: 4px; }
+  .star.on { color: var(--star); }
+  .meta { font-size: 12px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding-right: 26px; }
+  .chip { font-size: 11px; border-radius: 4px; padding: 0 5px; font-weight: 700; }
+  .chip.new { background: var(--new); color: #fff; }
+  .chip.drop { background: var(--accent-soft); color: var(--accent); }
+  .dd { background: var(--dday-soft); color: var(--dday); }
+  .dd.past { background: var(--tag); color: var(--muted); }
+  .soldchip { background: var(--sold-soft); color: var(--sold); }
+  .addr { font-weight: 600; margin: 2px 0 6px; font-size: 14px; color: inherit; text-decoration: none; display: block; }
+  .addr:hover { color: var(--accent); }
+  .rows { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 13px; margin: 0; }
+  .rows dt { color: var(--muted); }
+  .rows dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .low { color: var(--low); font-weight: 700; }
+  .sold { color: var(--sold); font-weight: 700; }
+  .small { font-size: 11px; color: var(--muted); }
+  .strike { text-decoration: line-through; }
+  .tags { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
+  .tags span { background: var(--tag); border-radius: 4px; padding: 1px 6px; font-size: 11px; color: var(--muted); }
+  .tags span.warn { background: var(--dday-soft); color: var(--dday); font-weight: 600; }
+  .foot { margin-top: 6px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  a.ext { color: var(--accent); text-decoration: none; font-size: 12px; }
+  .seenbtn { font-size: 12px; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0; text-decoration: underline; }
+  .empty { padding: 40px; text-align: center; color: var(--muted); background: var(--card); border-radius: 12px; border: 1px dashed var(--line); }
+  .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>서울 아파트 경매 모니터</h1>
+  <div class="sub">경매마당 · 아파트 · 지분경매 제외 · 감정가 10억↑ · 최저가 <span id="maxlow"></span>↓ · 매일 오전 9시 갱신 · <span id="updated"></span></div>
+  <div class="sub" id="savebar" style="display:none;margin-top:6px"></div>
+</header>
+<div class="wrap">
+  <div class="tabs" id="tabs"></div>
+  <div class="search">
+    <input type="search" id="q" placeholder="아파트 이름, 구, 동, 사건번호로 검색 (예: 은마, 강남구, 대치동)" autocomplete="off">
+    <span class="sub" id="qinfo"></span>
+  </div>
+  <div class="filters" id="filters">
+    <span class="sub">기본으로 숨김 · 체크하면 함께 보기</span>
+    <label><input type="checkbox" data-tag="선순위임차인"> 선순위임차인 <span class="cnt"></span></label>
+    <label><input type="checkbox" data-tag="임차권등기"> 임차권등기 <span class="cnt"></span></label>
+    <span class="sub" id="hidden"></span>
+  </div>
+  <div class="bar">
+    <h2 id="title"></h2>
+    <div class="right">
+      <button class="btn" id="allseen" style="display:none">모두 확인 처리</button>
+      <label class="sub">정렬
+        <select id="sort">
+          <option value="default">기본</option>
+          <option value="bid">매각기일 빠른순</option>
+          <option value="eval">감정가 높은순</option>
+          <option value="rate">최저가율 낮은순</option>
+          <option value="gap">시세 대비 최저가 낮은순</option>
+        </select>
+      </label>
+    </div>
+  </div>
+  <div id="note"></div>
+  <div class="grid" id="list"></div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const DATA = /*__DATA__*/null;
+const won = n => {
+  if (!n) return "-";
+  const eok = Math.floor(n / 1e8), man = Math.round((n % 1e8) / 1e4);
+  return (eok ? eok + "억" : "") + (man ? man.toLocaleString() + "만" : "") + "원";
+};
+const pct = (a, b) => (a && b) ? Math.round(a / b * 100) + "%" : "";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const $ = id => document.getElementById(id);
+
+// D-day는 페이지를 여는 날 기준
+const now = new Date(); now.setHours(0, 0, 0, 0);
+const dday = d => d ? Math.round((new Date(d + "T00:00:00") - now) / 864e5) : null;
+const ddayLabel = n => n === null ? "" : n > 0 ? `D-${n}` : n === 0 ? "D-DAY" : `D+${-n}`;
+const marketRef = it => it.market?.recent_avg || null;
+
+// ---- 서버 저장 (확인함 / 집중 모니터링) ----
+// ---- 확인함 / ★ 저장 ----
+// local : 이 컴퓨터의 server.py (SQLite)
+// github: 저장소의 data/state.json 을 GitHub API 로 직접 읽고 씀 (기기마다 토큰 한 번 입력)
+const MODE = DATA.mode || "local";
+async function api(path, body) {
+  if (MODE === "github") return gh.save(path, body);
+  try {
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(r.status);
+    return true;
+  } catch (e) { toast("저장하지 못했습니다. 서버(localhost:8765)가 켜져 있는지 확인하세요."); return false; }
+}
+
+const gh = {
+  TOKEN_KEY: "auction_app.ghToken",
+  state: { items: {} }, sha: null, pending: {}, timer: null,
+  token() { try { return localStorage.getItem(this.TOKEN_KEY) || ""; } catch (e) { return ""; } },
+  url() { return `https://api.github.com/repos/${DATA.repo}/contents/${DATA.state_path}`; },
+  headers() { return { Authorization: `Bearer ${this.token()}`, Accept: "application/vnd.github+json" }; },
+  decode(b64) { return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\n/g, "")), c => c.charCodeAt(0)))); },
+  encode(obj) {
+    const bytes = new TextEncoder().encode(JSON.stringify(obj, null, 1) + "\n");
+    let bin = ""; bytes.forEach(b => bin += String.fromCharCode(b)); return btoa(bin);
+  },
+  async load() {
+    if (this.token()) {
+      const r = await fetch(`${this.url()}?ref=${encodeURIComponent(DATA.branch)}&t=${Date.now()}`, { headers: this.headers(), cache: "no-store" });
+      if (r.status === 401 || r.status === 403) throw new Error("token");
+      if (r.status === 404) { this.state = { items: {} }; this.sha = null; return; }
+      if (!r.ok) throw new Error(r.status);
+      const j = await r.json(); this.sha = j.sha; this.state = this.decode(j.content);
+    } else {
+      const r = await fetch(`https://raw.githubusercontent.com/${DATA.repo}/${DATA.branch}/${DATA.state_path}?t=${Date.now()}`, { cache: "no-store" });
+      this.state = r.ok ? await r.json() : { items: {} };
+    }
+    this.state.items ||= {};
+  },
+  apply() {
+    for (const it of ALL) {
+      const st = this.state.items[it.m_code] || {};
+      it.starred = !!st.starred;
+      // 유찰로 다시 조건에 들어오면(qualified_on 이 확인한 날보다 뒤) 다시 '미확인'
+      it.viewed = !!st.viewed_at && (!it.qualified_on || st.viewed_at.slice(0, 10) >= it.qualified_on);
+    }
+  },
+  save(path, body) {
+    if (!this.token()) { toast("이 기기에서는 읽기 전용입니다. 위의 '저장 설정'에서 토큰을 넣으면 저장됩니다."); return true; }
+    const now = new Date().toISOString().slice(0, 19);
+    if (path === "/api/view") for (const c of body.m_codes) this.pending[c] = { ...(this.pending[c] || {}), viewed_at: now };
+    if (path === "/api/star") this.pending[body.m_code] = { ...(this.pending[body.m_code] || {}), starred: !!body.starred };
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.flush(), 800);  // 여러 번 누르면 한 번에 커밋
+    return true;
+  },
+  async flush(retry = 2) {
+    const patch = this.pending; this.pending = {};
+    if (!Object.keys(patch).length) return;
+    const merge = () => {
+      for (const [c, v] of Object.entries(patch)) {
+        const cur = { ...(this.state.items[c] || {}), ...v };
+        if (!cur.starred) delete cur.starred;
+        if (cur.viewed_at || cur.starred) this.state.items[c] = cur; else delete this.state.items[c];
+      }
+    };
+    merge();
+    const r = await fetch(this.url(), { method: "PUT", headers: this.headers(), body: JSON.stringify({
+      message: "화면에서 확인함/★ 저장", content: this.encode(this.state), branch: DATA.branch, ...(this.sha ? { sha: this.sha } : {}) }) });
+    if (r.ok) { this.sha = (await r.json()).content.sha; setSaveBar(); return; }
+    if ((r.status === 409 || r.status === 422) && retry > 0) {  // 다른 기기/자동수집과 겹침 → 최신본 다시 받아서 합치기
+      await this.load(); this.pending = { ...patch, ...this.pending }; return this.flush(retry - 1);
+    }
+    this.pending = { ...patch, ...this.pending };
+    toast(r.status === 401 || r.status === 403 ? "토큰 권한을 확인하세요 (Contents: Read and write)." : `저장 실패 (${r.status}). 잠시 뒤 다시 눌러 주세요.`);
+  },
+};
+
+function setSaveBar() {
+  if (MODE !== "github") return;
+  const bar = $("savebar"); bar.style.display = "";
+  bar.innerHTML = gh.token()
+    ? `확인함/★ 표시는 GitHub에 저장됩니다 · <button class="seenbtn" id="tokbtn">토큰 지우기</button>`
+    : `읽기 전용 — 확인함/★ 표시를 저장하려면 <button class="seenbtn" id="tokbtn">저장 설정 (GitHub 토큰 넣기)</button>`;
+  $("tokbtn").onclick = async () => {
+    if (gh.token()) { try { localStorage.removeItem(gh.TOKEN_KEY); } catch (e) {} setSaveBar(); return; }
+    const t = (prompt("GitHub fine-grained 토큰 (이 저장소만, Contents: Read and write)") || "").trim();
+    if (!t) return;
+    try { localStorage.setItem(gh.TOKEN_KEY, t); } catch (e) { toast("이 브라우저는 토큰을 저장할 수 없습니다."); return; }
+    try { await gh.load(); gh.apply(); render(); toast("저장 설정 완료"); }
+    catch (e) { try { localStorage.removeItem(gh.TOKEN_KEY); } catch (_) {} toast("토큰이 맞지 않거나 권한이 없습니다."); }
+    setSaveBar();
+  };
+}
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 3000); }
+
+// ---- 임차인 필터 (브라우저에 기억) ----
+const TENANT_TAGS = ["선순위임차인", "임차권등기"];
+const PREF_KEY = "auction_app.showTags";
+let showTags = new Set();
+try { showTags = new Set(JSON.parse(localStorage.getItem(PREF_KEY) || "[]")); } catch (e) {}
+const passTenant = it => it.starred || !(it.special_right || []).some(t => TENANT_TAGS.includes(t) && !showTags.has(t));
+
+const ALL = DATA.items;
+const byCode = Object.fromEntries(ALL.map(it => [it.m_code, it]));
+const tracked = it => it.qualified_on || it.starred;
+const VIEWS = {
+  new:     { label: "신규 (미확인)", filter: it => it.qualified_on && !it.baseline && !it.viewed,
+             title: n => `아직 확인하지 않은 물건 ${n}건`, empty: "확인하지 않은 신규 물건이 없습니다." },
+  star:    { label: "★ 집중 모니터링", filter: it => it.starred,
+             title: n => `집중 모니터링 ${n}건`, empty: "카드 오른쪽 위 ☆를 눌러 집중 모니터링할 물건을 표시하세요." },
+  all:     { label: "모니터링 중", filter: it => it.active && it.qualifies,
+             title: n => `조건(최저가 ${won(DATA.max_low_price)} 이하)을 만족하는 진행 물건 ${n}건`, empty: "조건을 만족하는 진행 물건이 없습니다." },
+  wait:    { label: "가격 대기", filter: it => it.active && !it.qualifies,
+             title: n => `최저가가 ${won(DATA.max_low_price)}를 넘어 대기 중인 물건 ${n}건 · 유찰로 내려오면 신규로 들어옵니다`, empty: "가격 대기 물건이 없습니다." },
+  result:  { label: "매각 결과", filter: it => tracked(it) && (it.result || !it.active),
+             title: n => `매각기일이 지났거나 목록에서 빠진 물건 ${n}건`, empty: "아직 매각기일이 지난 물건이 없습니다." },
+};
+let tab = "new";
+const seenThisSession = new Set();  // 이번에 확인한 카드는 새로고침 전까지 흐리게 남겨둠
+
+// ---- 검색: 아파트 이름·구·동·주소·사건번호. 띄어쓰기로 여러 단어를 넣으면 모두 포함하는 물건만 ----
+const norm = s => String(s ?? "").toLowerCase().replace(/\s+/g, "");
+for (const it of ALL) {
+  it._search = norm([it.addr, it.danji_name, it["2depth_addr"], it.jibun_region_2depth_name,
+    it.jibun_region_3depth_name, it.case_num, it.bubwon].join(" "));
+}
+let query = [];
+const passQuery = it => query.every(w => it._search.includes(w));
+
+function listFor(id) {
+  return ALL.filter(it => passTenant(it) && passQuery(it) && (VIEWS[id].filter(it) || (id === "new" && seenThisSession.has(it.m_code))));
+}
+
+function renderTabs() {
+  $("tabs").innerHTML = Object.entries(VIEWS).map(([id, v]) => {
+    const n = listFor(id).filter(it => !(id === "new" && it.viewed)).length;
+    const hot = id === "new" && n > 0 ? " hot" : "";
+    return `<button data-t="${id}" class="${id === tab ? "on" : ""}">${v.label}<span class="n${hot}">${n}</span></button>`;
+  }).join("");
+  $("tabs").querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.t; seenThisSession.clear(); render(); });
+  // 체크박스 옆 건수와 숨김 건수는 '현재 탭 + 검색' 기준
+  const inTab = ALL.filter(it => passQuery(it) && VIEWS[tab].filter(it));
+  document.querySelectorAll("#filters input").forEach(cb => {
+    const tag = cb.dataset.tag;
+    cb.checked = showTags.has(tag);
+    cb.parentElement.querySelector(".cnt").textContent = `${inTab.filter(it => (it.special_right || []).includes(tag)).length}건`;
+  });
+  const hidden = inTab.filter(it => !passTenant(it)).length;
+  $("hidden").textContent = hidden ? `· 이 탭에서 ${hidden}건 숨김` : "";
+}
+
+function marketRows(it) {
+  const m = it.market;
+  if (m && m.count) {
+    const l = m.latest;
+    return `<dt>시세(같은 평형)</dt><dd><b>${won(m.recent_avg)}</b> <span class="small">최근 ${m.recent_n}건 평균</span><br>
+      <span class="small">최근 거래 ${esc(l.date)} ${won(l.price)} · ${esc(l.floor)}층 · ${l.area}㎡</span></dd>
+      <dt>최저가/시세</dt><dd>${pct(it.low_price, m.recent_avg)}</dd>`;
+  }
+  if (m && m.count === 0) return `<dt>시세(같은 평형)</dt><dd class="small">최근 ${m.months}개월 같은 평형 실거래 없음</dd>`;
+  return `<dt>시세</dt><dd><span class="small">${it.danji_trade_avg ? `단지 평균 ${won(it.danji_trade_avg)} (평형 무관)` : "-"}</span></dd>`;
+}
+
+function resultRows(it) {
+  const r = it.result;
+  if (r && r.state === "매각" && r.sold_price)
+    return `<dt>매각액</dt><dd><span class="sold">${won(r.sold_price)}</span> <span class="small">(감정가의 ${pct(r.sold_price, it.m_evaluate_price)}${marketRef(it) ? ` · 시세의 ${pct(r.sold_price, marketRef(it))}` : ""}) ${esc(r.date)}</span></dd>`;
+  if (r) return `<dt>결과</dt><dd>${esc(r.state)} <span class="small">${esc(r.date)}</span></dd>`;
+  if (!it.active && dday(it.m_bid_date) < 0) return `<dt>결과</dt><dd class="small">확인 중 (매일 다시 확인)</dd>`;
+  if (!it.active) return `<dt>결과</dt><dd class="small">매각기일 전에 목록에서 빠짐 (변경·취하 등)</dd>`;
+  return "";
+}
+
+function hl(text) {
+  let out = esc(text);
+  const words = $("q").value.trim().split(/\s+/).filter(Boolean).map(w => esc(w).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (!words.length) return out;
+  return out.replace(new RegExp(`(${words.join("|")})`, "gi"), "<mark>$1</mark>");
+}
+
+function card(it) {
+  const n = dday(it.m_bid_date);
+  const area = it.areas?.build ? `${it.areas.build.m}㎡(${it.areas.build.p}평)` : "";
+  const sold = it.result?.state === "매각";
+  const unread = it.qualified_on && !it.baseline && !it.viewed;
+  const entry = !it.qualified_on ? "" : it.entry_reason === "price_drop"
+    ? `<span class="chip drop">유찰로 진입 ${esc(it.qualified_on.slice(5))}</span>`
+    : (!it.baseline ? `<span class="chip ${unread ? "new" : "drop"}">${unread ? "NEW" : "신건"} ${esc(it.qualified_on.slice(5))}</span>` : "");
+  const prev = it.prev_low_price && it.prev_low_price !== it.low_price
+    ? ` <span class="small strike">${won(it.prev_low_price)}</span>` : "";
+  const gap = !it.qualifies && it.active ? `<dt>조건까지</dt><dd class="small">최저가가 ${won(it.low_price - DATA.max_low_price)} 더 내려와야 함</dd>` : "";
+  const link = `https://madangs.com${esc(it.case_url)}`;
+  const cls = ["card", unread ? "unread" : "", it.starred ? "starred" : "", seenThisSession.has(it.m_code) ? "seen-now" : ""].join(" ");
+  return `<div class="${cls}" data-code="${esc(it.m_code)}">
+    <button class="star ${it.starred ? "on" : ""}" data-act="star" title="집중 모니터링">${it.starred ? "★" : "☆"}</button>
+    <img src="${esc(it.img_url)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+    <div class="body">
+      <div class="meta">${entry}
+        ${sold ? '<span class="chip soldchip">매각</span>' : `<span class="chip dd ${n < 0 ? "past" : ""}">${ddayLabel(n)}</span>`}
+        <span>${esc(it.case_num)}</span><span>${esc(it.bubwon)}</span></div>
+      <a class="addr" href="${link}" target="_blank" rel="noopener" data-act="view">${hl(it.addr)}</a>
+      ${it.danji_name && !norm(it.addr).includes(norm(it.danji_name)) ? `<div class="small" style="margin:-4px 0 6px">${hl(it.danji_name)}</div>` : ""}
+      <dl class="rows">
+        <dt>매각기일</dt><dd>${esc(it.m_bid_date)} <b>${ddayLabel(n)}</b> · ${esc(it.state)}</dd>
+        <dt>감정가</dt><dd>${won(it.m_evaluate_price)}</dd>
+        <dt>최저가</dt><dd><span class="low">${won(it.low_price)}</span> (${pct(it.low_price, it.m_evaluate_price)})${prev}</dd>
+        ${gap}
+        ${resultRows(it)}
+        ${marketRows(it)}
+        <dt>전용</dt><dd>${area}</dd>
+      </dl>
+      ${(it.special_right || []).length ? `<div class="tags">${it.special_right.map(t => `<span class="${TENANT_TAGS.includes(t) ? "warn" : ""}">${esc(t)}</span>`).join("")}</div>` : ""}
+      <div class="foot">
+        <a class="ext" href="${link}" target="_blank" rel="noopener" data-act="view">경매마당</a>
+        ${it.naver_apt_url ? `<a class="ext" href="${esc(it.naver_apt_url)}" target="_blank" rel="noopener" data-act="view">네이버부동산</a>` : ""}
+        ${unread ? `<button class="seenbtn" data-act="seen">확인함으로 표시</button>` : ""}
+      </div>
+    </div></div>`;
+}
+
+const SORTS = {
+  bid: (a, b) => String(a.m_bid_date).localeCompare(String(b.m_bid_date)),
+  eval: (a, b) => b.m_evaluate_price - a.m_evaluate_price,
+  rate: (a, b) => (a.low_price / a.m_evaluate_price) - (b.low_price / b.m_evaluate_price),
+  gap: (a, b) => (marketRef(a) ? a.low_price / marketRef(a) : 9) - (marketRef(b) ? b.low_price / marketRef(b) : 9),
+};
+const DEFAULT_SORT = {
+  new: (a, b) => String(b.qualified_on).localeCompare(String(a.qualified_on)) || SORTS.bid(a, b),
+  wait: (a, b) => a.low_price - b.low_price,
+  result: (a, b) => String(b.m_bid_date).localeCompare(String(a.m_bid_date)),
+};
+
+function render() {
+  renderTabs();
+  const list = listFor(tab);
+  const s = $("sort").value;
+  list.sort(s === "default" ? (DEFAULT_SORT[tab] || SORTS.bid) : SORTS[s]);
+  const unreadCount = list.filter(it => !it.viewed).length;
+  $("title").textContent = VIEWS[tab].title(tab === "new" ? unreadCount : list.length);
+  $("allseen").style.display = tab === "new" && unreadCount ? "" : "none";
+  $("note").innerHTML = DATA.has_molit_key ? "" :
+    `<div class="note">같은 평형 시세를 보려면 국토교통부 아파트 매매 실거래가 API 키를 <code>MOLIT_API_KEY</code>로 넣어 주세요 (로컬은 <code>.env</code>, GitHub는 Settings › Secrets). 그 전에는 경매마당의 단지 평균(평형 무관)만 표시됩니다.</div>`;
+  $("list").innerHTML = list.length ? list.map(card).join("") : `<div class="empty">${VIEWS[tab].empty}</div>`;
+}
+
+async function markSeen(codes) {
+  codes = codes.filter(c => !byCode[c].viewed);
+  if (!codes.length) return;
+  codes.forEach(c => { byCode[c].viewed = true; seenThisSession.add(c); });
+  render();
+  await api("/api/view", { m_codes: codes });
+}
+
+$("list").addEventListener("click", async e => {
+  const el = e.target.closest("[data-act]");
+  if (!el) return;
+  const code = el.closest(".card").dataset.code, it = byCode[code];
+  if (el.dataset.act === "star") {
+    it.starred = !it.starred;
+    render();
+    if (!await api("/api/star", { m_code: code, starred: it.starred })) { it.starred = !it.starred; render(); }
+  } else {
+    markSeen([code]);  // 링크를 누르면(새 탭) 확인함으로 저장
+  }
+});
+$("allseen").onclick = () => markSeen(listFor("new").map(it => it.m_code));
+document.querySelectorAll("#filters input").forEach(cb => cb.onchange = () => {
+  cb.checked ? showTags.add(cb.dataset.tag) : showTags.delete(cb.dataset.tag);
+  try { localStorage.setItem(PREF_KEY, JSON.stringify([...showTags])); } catch (e) {}
+  render();
+});
+$("sort").onchange = render;
+$("q").addEventListener("input", () => {
+  query = $("q").value.trim().split(/\s+/).filter(Boolean).map(norm);
+  // 검색어가 있으면 각 탭 건수가 검색 결과 기준으로 바뀜
+  $("qinfo").textContent = query.length
+    ? `전체 ${ALL.filter(it => passTenant(it) && passQuery(it) && (tracked(it) || it.active)).length}건 일치` : "";
+  render();
+});
+$("maxlow").textContent = won(DATA.max_low_price);
+$("updated").textContent = DATA.last_run ? `마지막 수집 ${DATA.last_run.replace("T", " ")}` : "";
+render();
+if (MODE === "github") {
+  setSaveBar();
+  gh.load().then(() => { gh.apply(); render(); })
+    .catch(() => toast("저장된 확인함/★ 표시를 불러오지 못했습니다."));
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+# 비밀값 — 절대 올리지 않음 (GitHub 에서는 Settings > Secrets 사용)
+.env
+*.bak
+# 로컬 실행 전용
+data/auction.db
+data/*.db-journal
+logs/
+_site/
+__pycache__/
+.DS_Store
+.claude/
