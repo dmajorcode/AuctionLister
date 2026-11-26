@@ -22,6 +22,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
+    environment: github-pages   # Secrets 를 이 환경(Environment secrets)에 등록해도 읽히도록. 빼면 알림·시세가 조용히 꺼짐
     steps:
       - uses: actions/checkout@v4
         with:
