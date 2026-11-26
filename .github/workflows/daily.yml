@@ -2,8 +2,9 @@ name: daily-collect
 
 on:
   schedule:
-    - cron: "0 0 * * *"        # 매일 00:00 UTC = 한국시간 오전 9시 (GitHub 사정으로 몇 분~수십 분 늦을 수 있음)
-    - cron: "0 4,9 * * *"      # 13:00, 18:00 KST: 매각결과만 갱신 (알림 없음)
+    # GitHub 예약 실행은 늦어질 수 있고 정시에 특히 몰리므로, 원하는 시각보다 조금 앞선 어중간한 분에 예약
+    - cron: "17 23 * * *"      # 한국시간 08:17 (전날 23:17 UTC): 전체 수집 + 알림 → 9시 전후 도착 목표
+    - cron: "47 3,8 * * *"     # 한국시간 12:47, 17:47: 매각결과만 갱신 (알림 없음)
   workflow_dispatch:            # Actions 탭에서 'Run workflow' 로 수동 실행
   push:
     branches: [main]
@@ -38,7 +39,7 @@ jobs:
           MOLIT_API_KEY: ${{ secrets.MOLIT_API_KEY }}
           BOARD_KEY: ${{ secrets.BOARD_KEY }}
           ALERT_SHOW_TAGS: ${{ vars.ALERT_SHOW_TAGS }}
-          MODE_ARGS: ${{ github.event.schedule == '0 4,9 * * *' && '--results-only' || '' }}
+          MODE_ARGS: ${{ github.event.schedule == '47 3,8 * * *' && '--results-only' || '' }}
         run: python collector.py --store json --site _site $MODE_ARGS
 
       - name: 페이지만 다시 만들기 (코드 push 일 때)
