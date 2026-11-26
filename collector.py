@@ -271,7 +271,14 @@ class Molit:
         while True:
             q = urllib.parse.urlencode({"LAWD_CD": lawd, "DEAL_YMD": ym, "pageNo": page, "numOfRows": 1000})
             key = self.key if "%" in self.key else urllib.parse.quote(self.key, safe="")
-            root = ET.fromstring(http_get(f"{MOLIT_URL}?serviceKey={key}&{q}"))
+            for attempt in range(3):  # 일시적인 접속 오류는 다시 시도
+                try:
+                    root = ET.fromstring(http_get(f"{MOLIT_URL}?serviceKey={key}&{q}"))
+                    break
+                except Exception:
+                    if attempt == 2:
+                        raise
+                    time.sleep(5)
             code = root.findtext(".//resultCode")
             if code not in ("00", "000"):
                 raise RuntimeError(f"국토부 API 오류 {code}: {root.findtext('.//resultMsg')}")
@@ -445,17 +452,23 @@ def update_market(con: sqlite3.Connection, key: str, today: str) -> None:
     molit = Molit(key)
     rows = con.execute(
         "SELECT m_code, data FROM items WHERE last_seen=? OR (result IS NOT NULL AND market IS NULL)", (today,)).fetchall()
-    ok = 0
+    ok = failed = streak = 0
+    reason = ""
     for m_code, data in rows:
         try:
             mk = market_price(molit, json.loads(data), dt.date.fromisoformat(today))
-        except Exception as e:
-            print(f"  실거래 조회 실패: {e}", file=sys.stderr)
-            return
+        except Exception as e:  # 한 건이 실패해도 나머지는 계속. 요청 주소에 키가 있어 오류 종류만 남김
+            failed, streak = failed + 1, streak + 1
+            reason = f"{type(e).__name__} {getattr(e, 'code', '') or getattr(e, 'reason', '')}".strip()
+            if streak >= 5:
+                break
+            continue
+        streak = 0
         con.execute("UPDATE items SET market=? WHERE m_code=?", (json.dumps(mk, ensure_ascii=False), m_code))
         ok += 1
     con.commit()
-    print(f"  실거래 시세 갱신 {ok}건 (API 호출 {len(molit.cache)}회분)")
+    report("warning" if failed else "notice",
+           f"실거래 시세 갱신 {ok}/{len(rows)}건 (API 호출 {len(molit.cache)}회분)" + (f", 실패 {failed}건: {reason}" if failed else ""))
 
 
 def page_data(con: sqlite3.Connection) -> dict:
