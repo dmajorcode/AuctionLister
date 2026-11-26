@@ -622,10 +622,16 @@ def split_messages(blocks: list[str], limit: int = 3900) -> list[str]:
     return out + ([cur] if cur else [])
 
 
+def report(level: str, msg: str) -> None:
+    """로그에 남기고, GitHub Actions 에서는 실행 요약(Annotations)에도 보이게. 토큰·채팅 ID 전체는 넣지 않는다."""
+    print(f"::{level}::{msg}" if os.environ.get("GITHUB_ACTIONS") else msg, flush=True)
+
+
 def notify_telegram(env: dict, new: list[dict], today: str) -> None:
     """TELEGRAM_TOKEN 과 TELEGRAM_CHAT_IDS(허용 목록)가 있으면 오늘 조건에 들어온 물건을 전송."""
     token, chats = env.get("TELEGRAM_TOKEN"), telegram_recipients(env)
     if not (token and chats):
+        report("warning", "텔레그램 알림을 보내지 않음: TELEGRAM_TOKEN 또는 TELEGRAM_CHAT_IDS 가 비어 있음")
         return
     # 화면 기본값과 같게: 선순위임차인/임차권등기/선순위가등기/유치권 물건은 제외 (ALERT_SHOW_TAGS 로 포함 가능)
     show = {t.strip() for t in env.get("ALERT_SHOW_TAGS", "").split(",") if t.strip()}
@@ -642,12 +648,15 @@ def notify_telegram(env: dict, new: list[dict], today: str) -> None:
             f"  감정 {s['eval_price']} / 최저 {s['low_price_kor']} ({s['state']}) 매각기일 {s['m_bid_date']}\n"
             f"  {SITE}{s['case_url']}"
         )
+    sent = 0
     for chat in chats:
-        for text in split_messages(blocks):
-            try:
+        try:
+            for text in split_messages(blocks):
                 telegram_send(token, chat, text)
-            except Exception as e:  # 알림 실패가 수집을 막지 않도록
-                print(f"텔레그램 전송 실패 (chat …{chat[-3:]}): {e}", file=sys.stderr)
+            sent += 1
+        except Exception as e:  # 알림 실패가 수집을 막지 않도록
+            report("warning", f"텔레그램 전송 실패 (chat …{chat[-3:]}): {e}")
+    report("notice", f"텔레그램 전송 {sent}/{len(chats)}명 성공 (조건 진입 {len(new)}건)")
 
 
 def main() -> int:
